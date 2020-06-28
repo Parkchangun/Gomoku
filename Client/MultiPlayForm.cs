@@ -10,13 +10,13 @@ using System.Windows.Forms;
 
 namespace Client
 {
-    public partial class SinglePlayForm : Form
+    public partial class MultiPlayForm : Form
     {
         //15 x 15 바둑판 형태로 구성
         private const int rectSize = 33; //오목판의 셀 크기
         private const int edgeCount = 15; //오목판의 선 개수
 
-        private enum Horse {none = 0, BLACK, WHITE};
+        private enum Horse { none = 0, BLACK, WHITE };
         //15 x 15 크기의 2차원 배열 board
         private Horse[,] board = new Horse[edgeCount, edgeCount];
         //플레이어 지정
@@ -24,20 +24,22 @@ namespace Client
 
         private bool playing = false;
 
-        public SinglePlayForm()
+        public MultiPlayForm()
         {
             InitializeComponent();
+            this.playButton.Enabled = false;
         }
+
         //승리 판정 함수
         private bool Judge()
         {
             //가로 5칸
-            for(int i = 0; i < edgeCount - 4; i++)
+            for (int i = 0; i < edgeCount - 4; i++)
             {
-                for(int j = 0; j < edgeCount; j++)
+                for (int j = 0; j < edgeCount; j++)
                 {
-                    if(board[i, j] == nowPlayer && board[i + 1, j] == nowPlayer && board[i + 2, j] == nowPlayer
-                        &&board[i + 3, j] == nowPlayer && board[i + 4, j] == nowPlayer)
+                    if (board[i, j] == nowPlayer && board[i + 1, j] == nowPlayer && board[i + 2, j] == nowPlayer
+                        && board[i + 3, j] == nowPlayer && board[i + 4, j] == nowPlayer)
                     {
                         return true;
                     }
@@ -86,14 +88,21 @@ namespace Client
         private void BoardRefresh()
         {
             this.boardPicture.Refresh();
-            for(int i = 0; i < edgeCount; i++)
+            for (int i = 0; i < edgeCount; i++)
             {
-                for(int j = 0; j < edgeCount; j++)
+                for (int j = 0; j < edgeCount; j++)
                 {
                     board[i, j] = Horse.none;
                 }
             }
 
+        }
+
+        private void enterButton_Click(object sender, EventArgs e)
+        {
+            this.enterButton.Enabled = false;
+            this.playButton.Enabled = true;
+            this.status.Text = "[" + this.roomTextBox.Text + "]번 방에 접속했습니다";
         }
 
         private void playButton_Click(object sender, EventArgs e)
@@ -113,9 +122,14 @@ namespace Client
         }
 
         private void boardPicture_MouseDown(object sender, MouseEventArgs e)
-        {
+        {     
             if (!playing)
             {
+                if (playButton.Enabled == false)
+                {
+                    MessageBox.Show("방을 입력해주세요");
+                    return;
+                }               
                 MessageBox.Show("게임을 실행해주세요");
                 return;
             }
@@ -124,7 +138,7 @@ namespace Client
             int x = e.X / rectSize;
             int y = e.Y / rectSize;
 
-            if(x < 0 || y < 0 || x >= edgeCount || y >= edgeCount)
+            if (x < 0 || y < 0 || x >= edgeCount || y >= edgeCount)
             {
                 MessageBox.Show("테두리를 벗어날 수 없습니다.");
                 return;
@@ -135,10 +149,10 @@ namespace Client
                 MessageBox.Show("놓을 수 없는 위치입니다");
                 return;
             }
-            
+
             board[x, y] = nowPlayer;
 
-            if(nowPlayer == Horse.BLACK)
+            if (nowPlayer == Horse.BLACK)
             {
                 SolidBrush brush = new SolidBrush(Color.Black);
                 g.FillEllipse(brush, x * rectSize, y * rectSize, rectSize, rectSize);
@@ -181,6 +195,6 @@ namespace Client
                 gp.DrawLine(p, rectSize / 2, i, rectSize * edgeCount - rectSize / 2, i);
                 gp.DrawLine(p, i, rectSize / 2, i, rectSize * edgeCount - rectSize / 2);
             }
-        }
+        }        
     }
 }

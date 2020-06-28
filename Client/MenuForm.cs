@@ -28,6 +28,14 @@ namespace Client
             //새로운 창 호출
             singlePlayForm.Show();
         }
+        //함께하기 버튼 클릭 시
+        private void multiPlayButton_Click(object sender, EventArgs e)
+        {
+            Hide();
+            MultiPlayForm multiPlayForm = new MultiPlayForm();
+            multiPlayForm.FormClosed += new FormClosedEventHandler(childForm_Closed);
+            multiPlayForm.Show();
+        }
 
         private void Exit_Click(object sender, EventArgs e)
         {
@@ -37,6 +45,6 @@ namespace Client
         void childForm_Closed(object sender, FormClosedEventArgs eventArgs)
         {
             Show();
-        }
+        }        
     }
 }
