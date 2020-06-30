@@ -1,11 +1,13 @@
 #define _CRT_SECURE_NO_WARNINGS
-#include <Windows.h>
+#include <windows.h>
 #include <winsock.h>
 #include <iostream>
 #include <vector>
 #include <sstream>
+#pragma comment (lib, "ws2_32.lib")
 
 using namespace std;
+
 //Client 클래스 생성
 class Client {
 private:
@@ -38,18 +40,18 @@ public:
 
 SOCKET serverSocket;
 vector<Client> connections;
-WSADATA wsaData;
+WSAData wsaData;
 SOCKADDR_IN serverAddress;
 
 int nextID;
 
 vector<string> getTokens(string input, char delimiter) {
 	vector<string> tokens;
-	istringstream format(input);
-	string str;
+	istringstream f(input);
+	string s;
 
-	while (getline(format, str, delimiter)) {
-		tokens.push_back(str);
+	while (getline(f, s, delimiter)) {
+		tokens.push_back(s);
 	}
 
 	return tokens;
@@ -74,7 +76,7 @@ void playClient(int roomID) {
 	for (int i = 0; i < connections.size(); i++) {
 		if (connections[i].getRoomID() == roomID) {
 			ZeroMemory(sent, 256);
-			
+
 			if (black) {
 				sprintf(sent, "%s", "[Play]Black");
 				black = false;
@@ -104,7 +106,7 @@ void putClient(int roomID, int x, int y) {
 	for (int i = 0; i < connections.size(); i++) {
 		if (connections[i].getRoomID() == roomID) {
 			ZeroMemory(sent, 256);
-			string data = "[Put]" + to_string(x) + ", " + to_string(y);
+			string data = "[Put]" + to_string(x) + "," + to_string(y);
 			sprintf(sent, "%s", data.c_str());
 			send(connections[i].getClientSocket(), sent, 256, 0);
 		}
@@ -121,7 +123,7 @@ void ServerThread(Client* client) {
 		if ((size = recv(client->getClientSocket(), received, 256, NULL)) > 0) {
 			string receivedString = string(received);
 			vector<string> tokens = getTokens(receivedString, ']');
-			
+
 			if (receivedString.find("[Enter]") != -1) {
 				/* 메시지를 보낸 클라이언트 찾기 */
 				for (int i = 0; i < connections.size(); i++) {
@@ -154,27 +156,63 @@ void ServerThread(Client* client) {
 					}
 				}
 			}
+			else if (receivedString.find("[Put]") != -1) {
+				//메시지를 보낸 클라이언트 정보 받기
+				string data = tokens[1];
+				vector<string> dataTokens = getTokens(data, ',');
+				int roomID = atoi(dataTokens[0].c_str());
+				int x = atoi(dataTokens[1].c_str());
+				int y = atoi(dataTokens[2].c_str());
+				//사용자가 놓은 돌의 위치를 전송
+				putClient(roomID, x, y);
+			}
+			else if (receivedString.find("[Play]") != -1) {
+				//메시지를 보낸 클라이언트 찾기
+				string roomID = tokens[1];
+				int roomInt = atoi(roomID.c_str());
+
+				playClient(roomInt);
+			}
+		}
+		else {
+			ZeroMemory(sent, 256);
+			sprintf(sent, "클라이언트 [%i]의 연결이 끊어졌습니다", client->getClientID());
+			cout << sent << endl;
+
+			//게임에서 나간 플레이어 찾기
+			for (int i = 0; i < connections.size(); i++) {
+				if (connections[i].getClientID() == client->getClientID()) {
+					//다른 사용자와 게임 중이던 사람이 나간 경우
+					if (connections[i].getRoomID() != -1 && countClientInRoom(connections[i].getRoomID()) == 2) {
+						exitClient(connections[i].getRoomID());
+					}
+					connections.erase(connections.begin() + i);
+					break;
+				}
+			}
+			delete client;
+			break;
 		}
 	}
 }
 
 int main() {
 	WSAStartup(MAKEWORD(2, 2), &wsaData);
-	serverSocket = socket(PF_INET, SOCK_STREAM, NULL);
+	serverSocket = socket(AF_INET, SOCK_STREAM, NULL);
 
-	serverAddress.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+	serverAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
 	serverAddress.sin_port = htons(9876);
 	serverAddress.sin_family = AF_INET;
 
 	cout << "[ C++ 오목 게임 서버 ON ]" << endl;
 
 	bind(serverSocket, (SOCKADDR*)&serverAddress, sizeof(serverAddress));
-	listen(serverSocket, 4);
+	listen(serverSocket, 32);
 
 	int addressLength = sizeof(serverAddress);
 
 	while (true) {
-		SOCKET clientSocket = socket(PF_INET, SOCK_STREAM, NULL);
+		SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, NULL);
 		if (clientSocket = accept(serverSocket, (SOCKADDR*)&serverAddress, &addressLength)) {
 			Client* client = new Client(nextID, clientSocket);
 			cout << "[ New User Connect ]" << endl;

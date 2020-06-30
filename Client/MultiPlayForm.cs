@@ -7,39 +7,53 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
 
 namespace Client
 {
     public partial class MultiPlayForm : Form
     {
+        private Thread thread; // 통신을 위한 쓰레드
+        private TcpClient tcpClient; // TCP 클라이언트
+        private NetworkStream stream;
+
         //15 x 15 바둑판 형태로 구성
         private const int rectSize = 33; //오목판의 셀 크기
         private const int edgeCount = 15; //오목판의 선 개수
 
         private enum Horse { none = 0, BLACK, WHITE };
         //15 x 15 크기의 2차원 배열 board
-        private Horse[,] board = new Horse[edgeCount, edgeCount];
-        //플레이어 지정
-        private Horse nowPlayer = Horse.BLACK;
+        private Horse[,] board;
+        private Horse nowPlayer;
+        private bool nowTurn;
 
-        private bool playing = false;
+        private bool entered;
+        private bool playing;
+        private bool threading;
 
         public MultiPlayForm()
         {
             InitializeComponent();
             this.playButton.Enabled = false;
+            playing = false;
+            entered = false;
+            threading = false;
+            board = new Horse[edgeCount, edgeCount];
+            nowTurn = false;
         }
 
         //승리 판정 함수
-        private bool Judge()
+        private bool Judge(Horse player)
         {
             //가로 5칸
             for (int i = 0; i < edgeCount - 4; i++)
             {
                 for (int j = 0; j < edgeCount; j++)
                 {
-                    if (board[i, j] == nowPlayer && board[i + 1, j] == nowPlayer && board[i + 2, j] == nowPlayer
-                        && board[i + 3, j] == nowPlayer && board[i + 4, j] == nowPlayer)
+                    if (board[i, j] == player && board[i + 1, j] == player && board[i + 2, j] == player
+                        && board[i + 3, j] == player && board[i + 4, j] == player)
                     {
                         return true;
                     }
@@ -50,8 +64,8 @@ namespace Client
             {
                 for (int j = 0; j < edgeCount - 4; j++)
                 {
-                    if (board[i, j] == nowPlayer && board[i, j + 1] == nowPlayer && board[i, j + 2] == nowPlayer
-                        && board[i, j + 3] == nowPlayer && board[i, j + 4] == nowPlayer)
+                    if (board[i, j] == player && board[i, j + 1] == player && board[i, j + 2] == player
+                        && board[i, j + 3] == player && board[i, j + 4] == player)
                     {
                         return true;
                     }
@@ -62,8 +76,8 @@ namespace Client
             {
                 for (int j = 0; j < edgeCount - 4; j++)
                 {
-                    if (board[i, j] == nowPlayer && board[i + 1, j + 1] == nowPlayer && board[i + 2, j + 2] == nowPlayer
-                        && board[i + 3, j + 3] == nowPlayer && board[i + 4, j + 4] == nowPlayer)
+                    if (board[i, j] == player && board[i + 1, j + 1] == player && board[i + 2, j + 2] == player
+                        && board[i + 3, j + 3] == player && board[i + 4, j + 4] == player)
                     {
                         return true;
                     }
@@ -74,8 +88,8 @@ namespace Client
             {
                 for (int j = 0; j < edgeCount - 4; j++)
                 {
-                    if (board[i, j] == nowPlayer && board[i - 1, j + 1] == nowPlayer && board[i - 2, j + 2] == nowPlayer
-                        && board[i - 3, j + 3] == nowPlayer && board[i - 4, j + 4] == nowPlayer)
+                    if (board[i, j] == player && board[i - 1, j + 1] == player && board[i - 2, j + 2] == player
+                        && board[i - 3, j + 3] == player && board[i - 4, j + 4] == player)
                     {
                         return true;
                     }
@@ -95,14 +109,121 @@ namespace Client
                     board[i, j] = Horse.none;
                 }
             }
+            playButton.Enabled = false;
+        }
+        /* 서버로부터 메시지를 전달 받는 처리를 할 함수 */
+        private void ReadMessage()
+        {
+            while (true)
+            {
+                byte[] buf = new byte[1024];
+                int bufBytes = stream.Read(buf, 0, buf.Length);
+                string message = Encoding.ASCII.GetString(buf, 0, bufBytes);
 
+                /* 접속 성공(메시지: [Enter]) */
+                if (message.Contains("[Enter]"))
+                {
+                    this.status.Text = "[" + this.roomTextBox.Text + "]번 방에 접속했습니다";
+                    //게임 시작 처리
+                    this.roomTextBox.Enabled = false;
+                    this.enterButton.Enabled = false;
+                    entered = true;
+                }
+                /* 방이 가득 찬 경우(메시지: [Full]) */
+                if (message.Contains("[Full]"))
+                {
+                    this.status.Text = "이미 가득 찬 방입니다";
+                    closeNetwork();
+                }
+                /* 게임 시작(메시지: [Play]{Horse}) */
+                if (message.Contains("[Play]"))
+                {
+                    BoardRefresh();
+                    string horse = message.Split(']')[1];
+
+                    if (horse.Contains("Black"))
+                    {
+                        this.status.Text = "당신의 차례입니다";
+                        nowTurn = true;
+                        nowPlayer = Horse.BLACK;
+                    }
+                    else
+                    {
+                        this.status.Text = "상대방의 차례입니다";
+                        nowTurn = false;
+                        nowPlayer = Horse.WHITE;
+                    }
+                    playing = true;
+                }
+                /* 상대방이 나간 경우(메시지: [Exit]) */
+                if (message.Contains("[Exit]"))
+                {
+                    this.status.Text = "상대방이 나갔습니다";
+                    BoardRefresh();
+                }
+                /* 상대방이 돌을 둔 경우(메시지: [Put]{X,Y} */
+                if (message.Contains("[Put]"))
+                {
+                    string position = message.Split(']')[1];
+                    int x = Convert.ToInt32(position.Split(',')[0]);
+                    int y = Convert.ToInt32(position.Split(',')[1]);
+
+                    Horse enemyPlayer = Horse.none;
+
+                    if(nowPlayer == Horse.BLACK)
+                    {
+                        enemyPlayer = Horse.WHITE;
+                    }
+                    else
+                    {
+                        enemyPlayer = Horse.BLACK;
+                    }
+
+                    if (board[x, y] != Horse.none) continue;
+                    board[x, y] = enemyPlayer;
+
+                    Graphics g = this.boardPicture.CreateGraphics();
+                    if(enemyPlayer == Horse.BLACK)
+                    {
+                        SolidBrush brush = new SolidBrush(Color.Black);
+                        g.FillEllipse(brush, x * rectSize, y * rectSize, rectSize, rectSize);
+                    }
+                    else
+                    {
+                        SolidBrush brush = new SolidBrush(Color.White);
+                        g.FillEllipse(brush, x * rectSize, y * rectSize, rectSize, rectSize);
+                    }
+
+                    if (Judge(enemyPlayer))
+                    {
+                        status.Text = "패배";
+                        playing = false;
+                        playButton.Text = "재시작";
+                        playButton.Enabled = true;
+                    }
+                    else
+                    {
+                        status.Text = "당신의 차례입니다";
+                    }
+                    nowTurn = true;
+                }
+            }
         }
 
         private void enterButton_Click(object sender, EventArgs e)
         {
-            this.enterButton.Enabled = false;
-            this.playButton.Enabled = true;
-            this.status.Text = "[" + this.roomTextBox.Text + "]번 방에 접속했습니다";
+            tcpClient = new TcpClient();
+            tcpClient.Connect("127.0.0.1", 9876);
+            stream = tcpClient.GetStream();
+
+            thread = new Thread(new ThreadStart(ReadMessage));
+            thread.Start();
+            threading = true;
+
+            /* 방 접속 진행하기 */
+            string message = "[Enter]";
+            byte[] buf = Encoding.ASCII.GetBytes(message + this.roomTextBox.Text);
+            stream.Write(buf, 0, buf.Length);
         }
 
         private void playButton_Click(object sender, EventArgs e)
@@ -111,13 +232,11 @@ namespace Client
             {
                 BoardRefresh();
                 playing = true;
-                playButton.Text = "재시작";
-                status.Text = nowPlayer.ToString() + "플레이어의 차례입니다.";
-            }
-            else
-            {
-                BoardRefresh();
-                status.Text = "게임이 재시작되었습니다.";
+                string message = "[Play]";
+                byte[] buf = Encoding.ASCII.GetBytes(message + this.roomTextBox.Text);
+                stream.Write(buf, 0, buf.Length);
+                this.status.Text = "상대 플레이어의 준비를 기다립니다";
+                this.playButton.Enabled = false;
             }
         }
 
@@ -125,12 +244,12 @@ namespace Client
         {     
             if (!playing)
             {
-                if (playButton.Enabled == false)
-                {
-                    MessageBox.Show("방을 입력해주세요");
-                    return;
-                }               
                 MessageBox.Show("게임을 실행해주세요");
+                return;
+            }
+
+            if (!nowTurn)
+            {
                 return;
             }
 
@@ -162,19 +281,26 @@ namespace Client
                 SolidBrush brush = new SolidBrush(Color.White);
                 g.FillEllipse(brush, x * rectSize, y * rectSize, rectSize, rectSize);
             }
+            /* 놓은 바둑돌의 위치 보내기 */
+            string message = "[Put]" + roomTextBox.Text + "," + x + "," + y;
+            byte[] buf = Encoding.ASCII.GetBytes(message);
+            stream.Write(buf, 0, buf.Length);
 
-            //현재 플레이어가 돌을 놓은 후
-            if (Judge())
+            /* 판정 처리 */
+            if (Judge(nowPlayer))
             {
-                status.Text = nowPlayer.ToString() + "플레이어가 승리했습니다.";
+                status.Text = "승리";
                 playing = false;
-                playButton.Text = "게임 시작";
+                playButton.Text = "재시작";
+                playButton.Enabled = true;
+                return;
             }
             else
             {
-                nowPlayer = (nowPlayer == Horse.BLACK) ? Horse.WHITE : Horse.BLACK;
-                status.Text = nowPlayer.ToString() + "플레이어의 차례입니다";
+                status.Text = "상대방 차례";
             }
+            /* 상대방 차례로 설정 */
+            nowTurn = false;
         }
 
         private void boardPicture_Paint(object sender, PaintEventArgs e)
@@ -195,6 +321,20 @@ namespace Client
                 gp.DrawLine(p, rectSize / 2, i, rectSize * edgeCount - rectSize / 2, i);
                 gp.DrawLine(p, i, rectSize / 2, i, rectSize * edgeCount - rectSize / 2);
             }
-        }        
+        }
+
+        private void MultiPlayForm_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            closeNetwork();
+        }
+
+        void closeNetwork()
+        {
+            if (threading && thread.IsAlive) thread.Abort();
+            if (entered)
+            {
+                tcpClient.Close();
+            }
+        }
     }
 }
