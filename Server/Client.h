@@ -5,6 +5,7 @@ class Client
 {
 public:
 	Client(int clientID, SOCKET clientSocket);
+	//접근을 위한 get과 set 함수
 	int getClientID();
 	int getRoomID();
 	void setRoomID(int roomID);
