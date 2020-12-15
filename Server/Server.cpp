@@ -1,11 +1,10 @@
-#include <Server.h>
-
-SOCKET Server::serversocket;
+#include "Server.h"
+SOCKET Server::serverSocket;
 WSADATA Server::wsaData;
 SOCKADDR_IN Server::serverAddress;
 int Server::nextID;
 vector<Client*> Server::connections;
-Util server::util;
+Util Server::util;
 
 void Server::enterClient(Client* client) {
 	char* sent = new char[256];
@@ -26,7 +25,7 @@ void Server::playClient(int roomID) {
 	bool black = true;
 
 	for (int i = 0; i < connections.size(); i++) {
-		if (connections[i]->getRoomID == roomID) {
+		if (connections[i]->getRoomID() == roomID) {
 			ZeroMemory(sent, 256);
 			if (black) {
 				sprintf(sent, "%s", "[Play]Black");
@@ -43,7 +42,7 @@ void Server::playClient(int roomID) {
 void Server::exitClient(int roomID) {
 	char* sent = new char[256];
 	for (int i = 0; i < connections.size(); i++) {
-		if (connections[i]->getRoomID == roomID) {
+		if (connections[i]->getRoomID() == roomID) {
 			ZeroMemory(sent, 256);
 			sprintf(sent, "%s", "[Exit]");
 			send(connections[i]->getClientSocket(), sent, 256, 0);
@@ -54,7 +53,7 @@ void Server::exitClient(int roomID) {
 void Server::putClient(int roomID, int x, int y) {
 	char* sent = new char[256];
 	for (int i = 0; i < connections.size(); i++) {
-		if (connections[i]->getRoomID == roomID) {
+		if (connections[i]->getRoomID() == roomID) {
 			ZeroMemory(sent, 256);
 			string data = "[Put]" + to_string(x) + "," + to_string(y);
 			sprintf(sent, "%s", data.c_str());
@@ -95,14 +94,14 @@ void Server::start() {
 			cout << "[ New User Connect ]" << endl;
 
 			CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE)ServerThread, (LPVOID)client, NULL, NULL);
-			connections.push_back(*client);
+			connections.push_back(client);
 			nextID++;
 		}
 		Sleep(100);
 	}
 }
 
-void ServerThread(Client* client) {
+void Server::ServerThread(Client* client) {
 	char* sent = new char[256];
 	char* received = new char[256];
 	int size = 0;
@@ -111,68 +110,53 @@ void ServerThread(Client* client) {
 		ZeroMemory(received, 256);
 		if ((size = recv(client->getClientSocket(), received, 256, NULL)) > 0) {
 			string receivedString = string(received);
-			vector<string> tokens = getTokens(receivedString, ']');
+			vector<string> tokens = util.getTokens(receivedString, ']');
 
 			if (receivedString.find("[Enter]") != -1) {
 				/* 메시지를 보낸 클라이언트 찾기 */
-				for (int i = 0; i < connections.size(); i++) {
 					string roomID = tokens[1];
 					int roomInt = atoi(roomID.c_str());
-					//Client를 찾은 경우
-					if (connections[i].getClientSocket() == client->getClientSocket()) {
-						int countClient = countClientInRoom(roomInt);
-						//2명 이상이 동일한 방에 들어가 있는 경우 가득 찼다고 전송
-						if (countClient >= 2) {
-							ZeroMemory(sent, 256);
-							sprintf(sent, "%s", "[Full]");
-							send(connections[i].getClientSocket(), sent, 256, 0);
-							break;
-						}
-						//2명 미만인 경우
-						cout << "클라이언트 [" << client->getClientID() << "]: " << roomID << "번 방으로 접속" << endl;
-						//해당 사용자의 방 접속 정보 갱신
-						Client* newClient = new Client(*client);
-						newClient->setRoomID(roomInt);
-						connections[i] = *newClient;
-						//방에 접속하였다고 메시지 전송
-						ZeroMemory(sent, 256);
-						sprintf(sent, "%s", "[Enter]");
-						send(connections[i].getClientSocket(), sent, 256, 0);
-						//상대방이 접속되어있는 경우 게임 시작
-						if (countClient == 1) {
-							playClient(roomInt);
-						}
+					int clientCount = clientCountInRoom(roomInt);
+					/*2명 이상이 동일한 방에 들어가 있는 경우*/
+					if (clientCount >= 2) {
+						fullClient(client);
 					}
-				}
+					/*접속 성공*/
+					client->setRoomID(roomInt);
+					cout << "클라이언트 [" << client->getClientID() << "]: " << client->getRoomID() << endl;
+					enterClient(client);
+					/*게임 시작*/
+					if (clientCount == 1) {
+						playClient(roomInt);
+					}
 			}
 			else if (receivedString.find("[Put]") != -1) {
-				//메시지를 보낸 클라이언트 정보 받기
+				/*메시지를 보낸 클라이언트 정보 받기*/
 				string data = tokens[1];
-				vector<string> dataTokens = getTokens(data, ',');
+				vector<string> dataTokens = util.getTokens(data, ',');
 				int roomID = atoi(dataTokens[0].c_str());
 				int x = atoi(dataTokens[1].c_str());
 				int y = atoi(dataTokens[2].c_str());
-				//사용자가 놓은 돌의 위치를 전송
-				putClient(roomID, x, y);
+				/*놓아진 돌의 위치 전송*/
+				putClient(client->getRoomID(), x, y);
 			}
 			else if (receivedString.find("[Play]") != -1) {
-				//메시지를 보낸 클라이언트 찾기
 				string roomID = tokens[1];
 				int roomInt = atoi(roomID.c_str());
-
-				playClient(roomInt);
+				playClient(client->getRoomID());
 			}
 		}
-		else {
-			cout << "클라이언트 [" << client->getClientID() << "]의 연결이 끊어짐." >> endl;
 
-			//게임에서 나간 플레이어 찾기
+		else {
+			cout << "클라이언트 [" << client->getClientID() << "]의 연결이 끊어짐." << endl;
+			/*게임에서 나간 플레이어 찾기*/
 			for (int i = 0; i < connections.size(); i++) {
-				if (connections[i].getClientID() == client->getClientID()) {
-					//다른 사용자와 게임 중이던 사람이 나간 경우
-					if (connections[i].getRoomID() != -1 &&
-							countClientInRoom(connections[i].getRoomID()) == 2) {
-						exitClient(connections[i].getRoomID());
+				if (connections[i]->getClientID() == client->getClientID()) {
+					/*게임중이던 사람이 나간 경우*/
+					if(connections[i]->getRoomID() != -1 &&
+						clientCountInRoom(connections[i]->getRoomID()) == 2) {
+						/*남아있는 사람에게 메시지 전송*/
+						exitClient(connections[i]->getRoomID());
 					}
 					connections.erase(connections.begin() + i);
 					break;

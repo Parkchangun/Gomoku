@@ -1,4 +1,4 @@
-#include <Client.h>
+#include "Client.h"
 Client::Client(int clientID, SOCKET clientSocket) {
 	this->clientID = clientID;
 	this->roomID = -1;
@@ -20,4 +20,3 @@ void Client::setRoomID(int roomID) {
 SOCKET Client::getClientSocket() {
 	return clientSocket;
 }
-};

@@ -1,7 +1,7 @@
 #ifndef GOMOKU_SERVER_H
 #define GOMOKU_SERVER_H
 #define _CRT_SECURE_NO_WARNINGS
-#pragma comment(lib, "ws2_32.lib");
+#pragma comment(lib, "ws2_32.lib")
 #include <iostream>
 #include <winsock.h>
 using namespace std;
